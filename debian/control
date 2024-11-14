@@ -11,11 +11,11 @@ Build-Depends: debhelper-compat (= 13),
                bubblewrap [amd64 arm64 armel armhf i386 mips64el ppc64el riscv64 s390x hppa ppc64 x32],
                xdg-dbus-proxy [amd64 arm64 armel armhf i386 mips64el ppc64el riscv64 s390x hppa ppc64 x32],
                libseccomp-dev [amd64 arm64 armel armhf i386 mips64el ppc64el riscv64 s390x hppa ppc64 x32],
-               cmake (>= 3.16),
+               cmake (>= 3.20),
                libglib2.0-dev,
                libharfbuzz-dev,
                libcairo2-dev,
-               libdrm-dev [linux-any],
+               libdrm-dev,
                libfontconfig-dev,
                libfreetype-dev,
                libicu-dev,
@@ -23,13 +23,14 @@ Build-Depends: debhelper-compat (= 13),
                libhyphen-dev,
                libjxl-dev,
                liblcms2-dev,
-               libmanette-0.2-dev (>= 0.2.4) [linux-any],
+               libmanette-0.2-dev (>= 0.2.4),
+               libsysprof-capture-4-dev (>= 3.38.0) [amd64 arm64 armel armhf i386 mips64el ppc64el riscv64 s390x hppa loong64 powerpc ppc64 sh4],
                libxslt1-dev,
                libxml2-dev,
                libsoup-3.0-dev,libgtk-3-dev,libgtk-4-dev,
                libsqlite3-dev,
-               libsystemd-dev [linux-any],
-               libgudev-1.0-dev [linux-any],
+               libsystemd-dev,
+               libgudev-1.0-dev,
                libwoff-dev,
                gperf,
                bison,
@@ -48,14 +49,14 @@ Build-Depends: debhelper-compat (= 13),
                libgstreamer-plugins-bad1.0-dev (>= 1.20.0),
                libenchant-2-dev,
                libsecret-1-dev,
-               gobject-introspection-bin,
+               gobject-introspection,
                libgirepository1.0-dev,
                ninja-build,
                libegl-dev,
                libgl-dev,
                libgles-dev
 Build-Depends-Indep: gi-docgen, libglib2.0-doc, libgtk-3-doc, libsoup-3.0-doc, jdupes
-Standards-Version: 4.6.2
+Standards-Version: 4.7.0
 Rules-Requires-Root: no
 Vcs-Browser: https://salsa.debian.org/webkit-team/webkit
 Vcs-Git: https://salsa.debian.org/webkit-team/webkit.git
@@ -63,7 +64,7 @@ Homepage: https://webkitgtk.org/
 
 Package: libjavascriptcoregtk-bin
 Section: interpreters
-Architecture: any
+Architecture: linux-any
 Pre-Depends: ${misc:Pre-Depends}
 Depends: libjavascriptcoregtk-4.1-0 (= ${binary:Version}),
          ${shlibs:Depends},
@@ -101,12 +102,15 @@ Description: Web content engine library for GTK - documentation
  .
  This package contains the documentation.
 
-Package: webkit2gtk-driver
-Architecture: any
+Package: webkitgtk-webdriver
+Architecture: linux-any
 Pre-Depends: ${misc:Pre-Depends}
 Depends: libwebkit2gtk-4.1-0 (= ${binary:Version}),
          ${shlibs:Depends},
          ${misc:Depends}
+Conflicts: ${wkwebdriver:Conflicts}
+Breaks: ${wkwebdriver:Replaces}
+Replaces: ${wkwebdriver:Replaces}
 Description: WebKitGTK WebDriver support
  WebKit is a web content engine, derived from KHTML and KJS from KDE, and
  used primarily in Apple's Safari browser.  It is made to be embedded in
@@ -136,9 +140,16 @@ Depends: libjavascriptcoregtk-bin, ${misc:Depends}
 Description: WebKitGTK JavaScript command-line interpreter (transitional dummy package)
  This is a transitional dummy package, it can be safely removed.
 
+Package: webkit2gtk-driver
+Section: oldlibs
+Architecture: all
+Depends: webkitgtk-webdriver, ${misc:Depends}
+Description: WebKitGTK WebDriver support (transitional dummy package)
+ This is a transitional dummy package, it can be safely removed.
+
 Package: libjavascriptcoregtk-4.1-0
 Section: libs
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Pre-Depends: ${misc:Pre-Depends}
 Depends: ${shlibs:Depends},
@@ -155,7 +166,7 @@ Description: JavaScript engine library from WebKitGTK
 
 Package: libjavascriptcoregtk-4.1-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libjavascriptcoregtk-4.1-0 (= ${binary:Version}),
          libglib2.0-dev,
@@ -174,7 +185,7 @@ Description: JavaScript engine library from WebKitGTK - development files
 
 Package: gir1.2-javascriptcoregtk-4.1
 Section: introspection
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libjavascriptcoregtk-4.1-0 (= ${binary:Version}),
          ${gir:Depends},
@@ -193,7 +204,7 @@ Description: JavaScript engine library from WebKitGTK - GObject introspection da
 
 Package: libwebkit2gtk-4.1-0
 Section: libs
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Pre-Depends: ${misc:Pre-Depends}
 Depends: libjavascriptcoregtk-4.1-0 (= ${binary:Version}),
@@ -226,8 +237,7 @@ Description: Web content engine library for GTK
 
 Package: libwebkit2gtk-4.1-dev
 Section: libdevel
-Architecture: any
-Multi-Arch: same
+Architecture: linux-any
 Depends: libwebkit2gtk-4.1-0 (= ${binary:Version}),
          libgtk-3-dev,
          libsoup-3.0-dev,
@@ -251,7 +261,7 @@ Description: Web content engine library for GTK - development files
 
 Package: gir1.2-webkit2-4.1
 Section: introspection
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libwebkit2gtk-4.1-0 (= ${binary:Version}),
          ${gir:Depends},
@@ -274,7 +284,7 @@ Description: Web content engine library for GTK - GObject introspection data
 
 Package: libjavascriptcoregtk-6.0-1
 Section: libs
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Pre-Depends: ${misc:Pre-Depends}
 Depends: ${shlibs:Depends},
@@ -291,7 +301,7 @@ Description: JavaScript engine library from WebKitGTK
 
 Package: libjavascriptcoregtk-6.0-dev
 Section: libdevel
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libjavascriptcoregtk-6.0-1 (= ${binary:Version}),
          libglib2.0-dev,
@@ -310,7 +320,7 @@ Description: JavaScript engine library from WebKitGTK - development files
 
 Package: gir1.2-javascriptcoregtk-6.0
 Section: introspection
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libjavascriptcoregtk-6.0-1 (= ${binary:Version}),
          ${gir:Depends},
@@ -329,7 +339,7 @@ Description: JavaScript engine library from WebKitGTK - GObject introspection da
 
 Package: libwebkitgtk-6.0-4
 Section: libs
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Pre-Depends: ${misc:Pre-Depends}
 Depends: libjavascriptcoregtk-6.0-1 (= ${binary:Version}),
@@ -362,8 +372,7 @@ Description: Web content engine library for GTK
 
 Package: libwebkitgtk-6.0-dev
 Section: libdevel
-Architecture: any
-Multi-Arch: same
+Architecture: linux-any
 Depends: libwebkitgtk-6.0-4 (= ${binary:Version}),
          libgtk-4-dev,
          libsoup-3.0-dev,
@@ -387,7 +396,7 @@ Description: Web content engine library for GTK - development files
 
 Package: gir1.2-webkit-6.0
 Section: introspection
-Architecture: any
+Architecture: linux-any
 Multi-Arch: same
 Depends: libwebkitgtk-6.0-4 (= ${binary:Version}),
          ${gir:Depends},
