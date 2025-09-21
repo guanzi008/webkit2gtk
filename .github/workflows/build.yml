@@ -82,14 +82,14 @@ jobs:
             ccache-${{ runner.os }}-
 
       # 二选一：喜欢 mk-build-deps 就保留这一段并注释掉下一段；否则用 apt-get build-dep
-      - name: Install build-deps via mk-build-deps (Deepin repo)
-        run: |
-          mk-build-deps -ir -t "apt-get -y --no-install-recommends"
-
-      # - name: Install build-deps via apt-get build-dep (needs deb-src)
+      # - name: Install build-deps via mk-build-deps (Deepin repo)
       #   run: |
-      #     apt-get update
-      #     apt-get build-dep ./ -y --no-install-recommends
+      #     mk-build-deps -ir -t "apt-get -y --no-install-recommends"
+
+      - name: Install build-deps via apt-get build-dep (needs deb-src)
+        run: |
+          apt-get update
+          apt-get build-dep ./ -y --no-install-recommends
 
       - name: Restore sysctl after apt
         if: ${{ always() }}
