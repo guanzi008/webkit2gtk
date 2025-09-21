@@ -49,14 +49,6 @@ jobs:
           EOF
           apt-get update
 
-      - name: Add 10G swap to mitigate OOM
-        run: |
-          fallocate -l 10G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=10240
-          chmod 600 /swapfile
-          mkswap /swapfile
-          swapon /swapfile
-          sysctl -w vm.swappiness=60
-
       - name: Install base toolchain & helpers
         run: |
           apt-get install -y --no-install-recommends \
