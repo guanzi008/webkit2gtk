@@ -1,0 +1,124 @@
+name: Build webkit2gtk (Deepin crimson + patch)
+
+on:
+  push:
+    branches: [ "2.48.0-1deepin1", "main" ]
+  pull_request:
+    branches: [ "2.48.0-1deepin1", "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+
+    # 在 deepin 容器里构建，环境更接近目标系统
+    container:
+      image: linuxdeepin/deepin:latest
+
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      # WebKitGTK 编译很吃内存；按需调大/调小
+      DEB_BUILD_OPTIONS: nocheck parallel=2
+      NINJAFLAGS: -j2
+      CCACHE_DIR: /github/home/.cache/ccache
+
+      # deepin 源配置
+      DEEPIN_MIRROR: https://ci.deepin.com/repo/deepin/deepin-community/stable
+      DEEPIN_SUITE: crimson/release
+      DEEPIN_COMPONENTS: main commercial community
+
+      # 要应用的补丁（你给的 raw 链接）
+      LINGLONG_PATCH_URL: https://raw.githubusercontent.com/guanzi008/org.deepin.runtime.gtk4/refs/heads/main/0001-fix-runtime-adapt-to-Linglong-runtime-path.patch
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure Deepin APT sources
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates gnupg curl
+          cat >/etc/apt/sources.list <<EOF
+          deb [trusted=yes] ${DEEPIN_MIRROR} ${DEEPIN_SUITE} ${DEEPIN_COMPONENTS}
+          EOF
+          apt-get update
+
+      - name: Add 10G swap to mitigate OOM
+        run: |
+          fallocate -l 10G /swapfile || dd if=/dev/zero of=/swapfile bs=1M count=10240
+          chmod 600 /swapfile
+          mkswap /swapfile
+          swapon /swapfile
+          sysctl -w vm.swappiness=60
+
+      - name: Install base toolchain & helpers
+        run: |
+          apt-get install -y --no-install-recommends \
+            build-essential git patch fakeroot devscripts debhelper dh-python \
+            equivs ccache cmake meson ninja-build pkg-config \
+            python3 python3-pip file rsync
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: /github/home/.cache/ccache
+          key: ccache-${{ runner.os }}-${{ hashFiles('debian/control') }}
+          restore-keys: |
+            ccache-${{ runner.os }}-
+
+      - name: Install build-deps from debian/control (Deepin repo)
+        run: |
+          # 从 debian/control 生成并安装构建依赖
+          mk-build-deps -ir -t "apt-get -y --no-install-recommends"
+
+      - name: Apply Linglong runtime patch (from raw URL)
+        run: |
+          set -e
+          echo "Downloading patch from: ${LINGLONG_PATCH_URL}"
+          curl -L "${LINGLONG_PATCH_URL}" -o /tmp/linglong.patch
+          echo "Patch head:"
+          head -n 5 /tmp/linglong.patch || true
+          echo "Trying git apply..."
+          if git apply -p1 --check /tmp/linglong.patch; then
+            git apply -p1 /tmp/linglong.patch
+            echo "Applied with git apply."
+          else
+            echo "git apply failed, fallback to patch -p1 --forward"
+            patch -p1 --forward < /tmp/linglong.patch
+            echo "Applied with patch -p1."
+          fi
+
+      # 如需 clang（某些环境更省内存/更快），取消注释：
+      # - name: Install clang toolchain (optional)
+      #   run: apt-get install -y --no-install-recommends clang lld
+
+      - name: Build (dpkg-buildpackage)
+        env:
+          CC: "ccache gcc"   # 若改用 clang：CC='ccache clang'  CXX='ccache clang++'
+          CXX: "ccache g++"
+        run: |
+          dpkg-buildpackage -us -uc -b
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p artifacts
+          shopt -s nullglob
+          mv ../*.deb ../*.ddeb ../*.buildinfo ../*.changes artifacts/ || true
+
+      - name: Lint packages (optional)
+        if: ${{ always() }}
+        run: |
+          apt-get install -y --no-install-recommends lintian || true
+          lintian artifacts/*.changes || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: webkit2gtk-${{ github.sha }}
+          path: artifacts
