@@ -1,4 +1,4 @@
-name: Build webkit2gtk (Deepin crimson + patch)
+name: Build webkit2gtk (Deepin crimson + patch, sysctl-safe)
 
 on:
   push:
@@ -15,23 +15,21 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
 
-    # 在 deepin 容器里构建，环境更接近目标系统
     container:
       image: linuxdeepin/deepin:latest
 
     env:
       DEBIAN_FRONTEND: noninteractive
-      # WebKitGTK 编译很吃内存；按需调大/调小
-      DEB_BUILD_OPTIONS: nocheck parallel=2
-      NINJAFLAGS: -j2
+      # 低内存设置：关测试/文档/自动dbgsyms，并行=1；禁用LTO
+      DEB_BUILD_OPTIONS: "nocheck nodoc noautodbgsym parallel=1"
+      DEB_BUILD_MAINT_OPTIONS: "optimize=-lto"
+      NINJAFLAGS: -j1
       CCACHE_DIR: /github/home/.cache/ccache
-
-      # deepin 源配置
+      # deepin 源
       DEEPIN_MIRROR: https://ci.deepin.com/repo/deepin/deepin-community/stable
       DEEPIN_SUITE: crimson/release
       DEEPIN_COMPONENTS: main commercial community
-
-      # 要应用的补丁（你给的 raw 链接）
+      # 你的补丁
       LINGLONG_PATCH_URL: https://raw.githubusercontent.com/guanzi008/org.deepin.runtime.gtk4/refs/heads/main/0001-fix-runtime-adapt-to-Linglong-runtime-path.patch
 
     steps:
@@ -40,21 +38,40 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Configure Deepin APT sources
+      - name: Configure Deepin APT sources (with deb-src)
         run: |
           apt-get update
           apt-get install -y --no-install-recommends ca-certificates gnupg curl
           cat >/etc/apt/sources.list <<EOF
           deb [trusted=yes] ${DEEPIN_MIRROR} ${DEEPIN_SUITE} ${DEEPIN_COMPONENTS}
+          deb-src [trusted=yes] ${DEEPIN_MIRROR} ${DEEPIN_SUITE} ${DEEPIN_COMPONENTS}
           EOF
           apt-get update
+
+      # ⚠️ 关键：避免 procps 触发器在容器里执行真正的 sysctl 导致 Permission denied
+      - name: Temporarily neutralize sysctl during apt (container-safe)
+        run: |
+          set -e
+          SYSCTL_BIN="$(command -v sysctl || true)"
+          if [ -n "$SYSCTL_BIN" ]; then
+            echo "$SYSCTL_BIN" > /tmp/SYSCTL_PATH
+            cp -a "$SYSCTL_BIN" /tmp/sysctl.real
+            printf '#!/bin/sh\nexit 0\n' > "$SYSCTL_BIN"
+            chmod +x "$SYSCTL_BIN"
+          fi
+          # 补齐目录/空文件，消除 “cannot open 99-sysctl.conf” 噪音
+          mkdir -p /etc/sysctl.d
+          : > /etc/sysctl.d/99-sysctl.conf
+          # 可选：把触发器延后到 APT 结尾（减少多次触发）
+          printf 'DPkg::NoTriggers "true";\n' > /etc/apt/apt.conf.d/90notriggers
 
       - name: Install base toolchain & helpers
         run: |
           apt-get install -y --no-install-recommends \
             build-essential git patch fakeroot devscripts debhelper dh-python \
             equivs ccache cmake meson ninja-build pkg-config \
-            python3 python3-pip file rsync
+            python3 python3-pip file rsync lld || true
+          echo "DEB_LDFLAGS_MAINT_APPEND=-fuse-ld=lld" >> $GITHUB_ENV
 
       - name: Cache ccache
         uses: actions/cache@v4
@@ -64,38 +81,43 @@ jobs:
           restore-keys: |
             ccache-${{ runner.os }}-
 
-      - name: Install build-deps from debian/control (Deepin repo)
+      # 二选一：喜欢 mk-build-deps 就保留这一段并注释掉下一段；否则用 apt-get build-dep
+      - name: Install build-deps via mk-build-deps (Deepin repo)
         run: |
-          # 从 debian/control 生成并安装构建依赖
           mk-build-deps -ir -t "apt-get -y --no-install-recommends"
 
-      - name: Apply Linglong runtime patch (from raw URL)
+      # - name: Install build-deps via apt-get build-dep (needs deb-src)
+      #   run: |
+      #     apt-get update
+      #     apt-get build-dep ./ -y --no-install-recommends
+
+      - name: Restore sysctl after apt
+        if: ${{ always() }}
         run: |
-          set -e
-          echo "Downloading patch from: ${LINGLONG_PATCH_URL}"
-          curl -L "${LINGLONG_PATCH_URL}" -o /tmp/linglong.patch
-          echo "Patch head:"
-          head -n 5 /tmp/linglong.patch || true
-          echo "Trying git apply..."
-          if git apply -p1 --check /tmp/linglong.patch; then
-            git apply -p1 /tmp/linglong.patch
-            echo "Applied with git apply."
-          else
-            echo "git apply failed, fallback to patch -p1 --forward"
-            patch -p1 --forward < /tmp/linglong.patch
-            echo "Applied with patch -p1."
+          if [ -f /tmp/SYSCTL_PATH ] && [ -f /tmp/sysctl.real ]; then
+            SYSCTL_BIN="$(cat /tmp/SYSCTL_PATH)"
+            mv -f /tmp/sysctl.real "$SYSCTL_BIN" || true
+            rm -f /etc/apt/apt.conf.d/90notriggers || true
           fi
 
-      # 如需 clang（某些环境更省内存/更快），取消注释：
-      # - name: Install clang toolchain (optional)
-      #   run: apt-get install -y --no-install-recommends clang lld
+      - name: Apply Linglong runtime patch
+        run: |
+          set -e
+          curl -L "${LINGLONG_PATCH_URL}" -o /tmp/linglong.patch
+          if git apply -p1 --check /tmp/linglong.patch; then
+            git apply -p1 /tmp/linglong.patch
+          else
+            patch -p1 --forward < /tmp/linglong.patch
+          fi
 
       - name: Build (dpkg-buildpackage)
         env:
-          CC: "ccache gcc"   # 若改用 clang：CC='ccache clang'  CXX='ccache clang++'
+          CC: "ccache gcc"     # 如需 clang：CC='ccache clang' CXX='ccache clang++'
           CXX: "ccache g++"
         run: |
-          dpkg-buildpackage -us -uc -b
+          export DEB_CFLAGS_MAINT_APPEND="-g0"
+          export DEB_CXXFLAGS_MAINT_APPEND="-g0"
+          dpkg-buildpackage -uc -us -b
 
       - name: Collect artifacts
         run: |
